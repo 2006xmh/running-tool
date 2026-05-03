@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>🏃 跑步配速智能预测工具</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: "Microsoft YaHei", sans-serif;
+        }
+        body {
+            background: #f0f4f8;
+            margin: 0;
+            padding: 20px;
+        }
+        .page {
+            max-width: 800px;
+            margin: 0 auto;
+            display: none;
+        }
+        .active {
+            display: block;
+        }
+        .title {
+            font-size: 22px;
+            font-weight: bold;
+            text-align: center;
+            margin: 20px 0;
+            color: #2c3e50;
+        }
+        .subtitle {
+            font-size: 16px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .scroll-box {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            height: 350px;
+            overflow-y: auto;
+            line-height: 1.6;
+            border: 1px solid #ddd;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        .btn-green { background: #27ae60; }
+        .btn-blue { background: #3498db; }
+        .btn-red { background: #e74c3c; }
+        .btn-orange { background: #e67e22; }
+        .btn-purple { background: #9b59b6; }
+        .input-row {
+            display: flex;
+            gap: 8px;
+            margin: 6px 0;
+            align-items: center;
+        }
+        input {
+            width: 70px;
+            padding: 6px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .result-box {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            height: 240px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            border: 1px solid #ddd;
+            margin-top: 10px;
+        }
+        .back-btn {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- 页面1：介绍页 -->
+    <div id="page1" class="page active">
+        <div class="title">🏃 跑步配速智能预测工具</div>
+        <div class="scroll-box">
+【预测原理】
+本工具基于线性回归 + 运动疲劳模型，根据你已跑的公里数与配速，智能预测后续每400米用时。
+
+【疲劳系数说明】
+• 0-5km：疲劳增长缓慢
+• 5-15km：疲劳逐渐明显
+• 15-30km：疲劳显著上升
+• 30km以上：深度疲劳
+
+【操作规则】
+1. 方向键 ↑ ↓：上下移动光标
+2. 仅最后一行 双击↓：自动添加新行
+3. ← →：左右切换输入框
+4. 输入目标公里后按 Enter 开始预测
+5. 支持添加/删除记录
+
+【输出说明】
+工具会自动拆分每400米分段，显示配速与用时，让你精准掌握跑步节奏。
+        </div>
+        <div style="text-align:center; margin-top:20px;">
+            <button class="btn btn-green" onclick="goToPage2()">我已知晓，开始使用</button>
+        </div>
+    </div>
+
+    <!-- 页面2：数据输入页 -->
+    <div id="page2" class="page">
+        <button class="btn btn-purple back-btn" onclick="goToPage1()">📖 用户须知</button>
+        <div class="title">⚙️ 输入已跑数据</div>
+
+        <div class="subtitle">已跑记录（可多段）</div>
+        <div id="inputContainer"></div>
+
+        <div style="margin:10px 0;">
+            <button class="btn btn-blue" onclick="addRow()">+ 添加一段记录</button>
+            <button class="btn btn-red" onclick="removeRow()">- 减少一段记录</button>
+        </div>
+
+        <div class="subtitle">🎯 预测目标公里数</div>
+        <input type="text" id="targetKm" placeholder="例如：2.4">
+        <button class="btn btn-orange" onclick="predict()" style="margin-left:10px;">开始智能预测</button>
+
+        <div class="subtitle">📊 每400米分段结果</div>
+        <div class="result-box" id="result"></div>
+    </div>
+
+    <script>
+        let rows = [];
+        let inputs = [];
+        let lastDownTime = 0;
+        let lastFocusedInput = null;
+
+        // 页面切换
+        function goToPage1() {
+            document.getElementById('page1').classList.add('active');
+            document.getElementById('page2').classList.remove('active');
+        }
+        function goToPage2() {
+            document.getElementById('page1').classList.remove('active');
+            document.getElementById('page2').classList.add('active');
+            if (rows.length === 0) addRow();
+        }
+
+        // 添加输入行
+        function addRow() {
+            const container = document.getElementById('inputContainer');
+            const index = rows.length;
+            const div = document.createElement('div');
+            div.className = 'input-row';
+            div.innerHTML = `
+                第${index+1}段：
+                <input type="text" class="km" placeholder="公里">
+                <span>公里</span>
+                <input type="text" class="pace" placeholder="配速">
+                <span>分/公里</span>
+            `;
+            container.appendChild(div);
+            const kmInput = div.querySelector('.km');
+            const paceInput = div.querySelector('.pace');
+            rows.push(div);
+            inputs.push([kmInput, paceInput]);
+
+            bindKeys(kmInput);
+            bindKeys(paceInput);
+        }
+
+        // 删除最后一行
+        function removeRow() {
+            if (rows.length <= 1) return alert('至少保留一行');
+            const row = rows.pop();
+            row.remove();
+            inputs.pop();
+        }
+
+        // 方向键控制
+        function bindKeys(input) {
+            input.addEventListener('keydown', (e) => {
+                lastFocusedInput = input;
+                const currentRowIndex = inputs.findIndex(r => r.includes(input));
+                const isKm = inputs[currentRowIndex][0] === input;
+
+                // 上下
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    const now = Date.now();
+                    const isLastRow = currentRowIndex === inputs.length - 1;
+
+                    if (isLastRow && now - lastDownTime < 300) {
+                        addRow();
+                        inputs[inputs.length-1][0].focus();
+                    } else {
+                        if (currentRowIndex + 1 < inputs.length) {
+                            inputs[currentRowIndex + 1][isKm ? 0 : 1].focus();
+                        }
+                    }
+                    lastDownTime = now;
+                }
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (currentRowIndex > 0) {
+                        inputs[currentRowIndex - 1][isKm ? 0 : 1].focus();
+                    }
+                }
+                // 左右
+                if (e.key === 'ArrowRight') {
+                    e.preventDefault();
+                    inputs[currentRowIndex][1].focus();
+                }
+                if (e.key === 'ArrowLeft') {
+                    e.preventDefault();
+                    inputs[currentRowIndex][0].focus();
+                }
+                // Enter 预测
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    predict();
+                }
+            });
+        }
+
+        // 疲劳系数
+        function fatigue(km) {
+            if (km <= 5) return 0.001 * km;
+            if (km <= 15) return 0.005*(km-5)+0.005;
+            if (km <= 30) return 0.008*(km-15)+0.02;
+            return 0.012*(km-30)+0.05;
+        }
+
+        // 预测主函数
+        function predict() {
+            const data = [];
+            for (let [kmIn, paceIn] of inputs) {
+                const km = parseFloat(kmIn.value);
+                const pace = parseFloat(paceIn.value);
+                if (isNaN(km) || isNaN(pace) || km <=0 || pace <=0) {
+                    alert('请输入有效数字');
+                    return;
+                }
+                data.push([km, pace]);
+            }
+            data.sort((a,b)=>a[0]-b[0]);
+            const target = parseFloat(document.getElementById('targetKm').value);
+            if (isNaN(target) || target <= data[data.length-1][0]) {
+                alert('目标公里需大于已跑距离');
+                return;
+            }
+
+            let res = "📊 全程每400米用时详情\n";
+            res += "====================================================\n";
+            res += "分段(km)      配速(分/公里)    用时(分:秒)\n";
+            res += "----------------------------------------------------\n";
+
+            // 拆分400米
+            let last = 0;
+            const maxKnown = data[data.length-1][0];
+            while (last < maxKnown) {
+                const next = Math.min(last + 0.4, maxKnown);
+                const mid = (last + next)/2;
+                let pace = data[0][1];
+                for (let i=0; i<data.length-1; i++) {
+                    const [k1,p1] = data[i];
+                    const [k2,p2] = data[i+1];
+                    if (mid >= k1 && mid <= k2) {
+                        pace = p1 + (p2-p1)*(mid-k1)/(k2-k1);
+                        break;
+                    }
+                }
+                const t = pace * 0.4;
+                const m = Math.floor(t);
+                const s = Math.round((t-m)*60);
+                res += `${last.toFixed(1)}-${next.toFixed(1)}    ${pace.toFixed(2)}        ${m}:${s.toString().padStart(2,'0')}\n`;
+                last = next;
+            }
+
+            // 预测部分
+            let total = 0;
+            while (last < target) {
+                const next = Math.min(last+0.4, target);
+                const mid = (last+next)/2;
+                let pace;
+                if (data.length < 2) {
+                    pace = data[0][1] * (1 + fatigue(mid));
+                } else {
+                    const x = data.map(v=>v[0]);
+                    const y = data.map(v=>v[1]);
+                    const n = x.length;
+                    const mx = x.reduce((a,b)=>a+b,0)/n;
+                    const my = y.reduce((a,b)=>a+b,0)/n;
+                    const a = x.reduce((s,xi,i)=>s + (xi-mx)*(y[i]-my),0) / x.reduce((s,xi)=>s + (xi-mx)**2,0);
+                    const b = my - a*mx;
+                    let trend = a*mid + b;
+                    trend = Math.max(trend, Math.max(...y));
+                    pace = trend * (1 + fatigue(mid));
+                }
+                const dt = 0.4;
+                const t = pace * dt;
+                total += t;
+                const m = Math.floor(t);
+                const s = Math.round((t-m)*60);
+                res += `${last.toFixed(1)}-${next.toFixed(1)}    ${pace.toFixed(2)}        ${m}:${s.toString().padStart(2,'0')} (预测)\n`;
+                last = next;
+            }
+
+            res += "====================================================\n";
+            res += `✅ 预测总用时：${total.toFixed(2)} 分钟\n`;
+            res += `✅ 平均配速：${(total/(target-maxKnown)).toFixed(2)} 分/公里`;
+            document.getElementById('result').innerText = res;
+        }
+    </script>
+</body>
+</html>
